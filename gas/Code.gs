@@ -12,6 +12,7 @@
 
 // --- GLOBAL CONSTANTS ---
 const DEFAULT_SPREADSHEET_ID = '1M8-tKhUIg7OkQDg0lTvl5iQH8awPsKTrMocQodq9rkY';
+const DEFAULT_DRIVE_FOLDER_ID = '1IbDB-J-fgVfzbzLAA8uT07f5_2UX3lbY';
 const SPREADSHEET_ID_KEY = 'spreadsheetId_NnyPHO_v6';
 const DRIVE_FOLDER_ID_KEY = 'driveFolderId_NnyPHO_v6';
 const ROOT_FOLDER_NAME = 'สสจ.นย_เอกสารบันทึกไปราชการ_NEW';
@@ -273,18 +274,18 @@ function doGet(e) {
  * Returns the folder object for a given folder key.
  */
 function getOrCreateAppFolder_(subFolderName) {
-  let mainFolderId = PropertiesService.getScriptProperties().getProperty(DRIVE_FOLDER_ID_KEY);
+  let mainFolderId = PropertiesService.getScriptProperties().getProperty(DRIVE_FOLDER_ID_KEY) || DEFAULT_DRIVE_FOLDER_ID;
   let mainFolder;
 
   if (mainFolderId) {
     try {
       mainFolder = DriveApp.getFolderById(mainFolderId);
     } catch (e) {
-      mainFolderId = null;
+      mainFolder = null;
     }
   }
 
-  if (!mainFolderId || !mainFolder) {
+  if (!mainFolder) {
     const existing = DriveApp.getFoldersByName(ROOT_FOLDER_NAME);
     if (existing.hasNext()) {
       mainFolder = existing.next();
