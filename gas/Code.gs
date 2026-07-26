@@ -1,7 +1,7 @@
 /**
  * Google Apps Script for HR System - Nakhon Nayok PHO (Optimized v6.0)
  * Target Account: nyhr26000@gmail.com
- * Database Spreadsheet: https://docs.google.com/spreadsheets/d/1gPcT9EfC6aZ_G2o35fru599Xjkk9zFbGI2vsdHud9oA/edit
+ * Database Spreadsheet: https://docs.google.com/spreadsheets/d/1M8-tKhUIg7OkQDg0lTvl5iQH8awPsKTrMocQodq9rkY/edit
  * 
  * Major Enhancements in v6.0:
  * 1. HIGH-SPEED CHECK-IN / CHECK-OUT: Reads only recent 200 rows instead of full sheet scan.
@@ -11,7 +11,7 @@
  */
 
 // --- GLOBAL CONSTANTS ---
-const DEFAULT_SPREADSHEET_ID = '1gPcT9EfC6aZ_G2o35fru599Xjkk9zFbGI2vsdHud9oA';
+const DEFAULT_SPREADSHEET_ID = '1M8-tKhUIg7OkQDg0lTvl5iQH8awPsKTrMocQodq9rkY';
 const SPREADSHEET_ID_KEY = 'spreadsheetId_NnyPHO_v6';
 const DRIVE_FOLDER_ID_KEY = 'driveFolderId_NnyPHO_v6';
 const ROOT_FOLDER_NAME = 'สสจ.นย_เอกสารบันทึกไปราชการ_NEW';
