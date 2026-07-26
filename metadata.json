@@ -1,0 +1,6 @@
+{
+  "name": "HR System สสจ.นครนายก",
+  "description": "ระบบบริหารงานบุคคล บันทึกการไปราชการ ลงเวลาทำงาน (Check-in/out) ใบลา และ WFH สำนักงานสาธารณสุขจังหวัดนครนายก",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
