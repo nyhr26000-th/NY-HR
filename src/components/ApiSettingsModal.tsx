@@ -18,11 +18,21 @@ export const ApiSettingsModal: React.FC<ApiSettingsModalProps> = ({ isOpen, onCl
     Swal.fire({
       icon: 'success',
       title: 'บันทึก API URL สำเร็จ',
-      text: 'ระบบจะใช้ Google Apps Script Endpoint นี้ในการรับส่งข้อมูล',
+      text: 'ระบบจะรีโหลดแอปพลิเคชันเพื่อใช้ Google Apps Script Endpoint นี้',
       timer: 1500,
       showConfirmButton: false
     });
-    onClose();
+    
+    // Refresh the iframe if present, otherwise refresh the entire window
+    setTimeout(() => {
+      const iframe = document.getElementById('main-app-frame') as HTMLIFrameElement;
+      if (iframe) {
+        iframe.src = iframe.src;
+      } else {
+        window.location.reload();
+      }
+      onClose();
+    }, 1000);
   };
 
   return (
