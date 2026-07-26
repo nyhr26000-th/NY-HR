@@ -1,132 +1,52 @@
-import React, { useState, useEffect } from 'react';
-import { UserAccount } from './types';
-import { Header } from './components/Header';
-import { Sidebar } from './components/Sidebar';
-import { CheckInModule } from './components/CheckInModule';
-import { CalendarModule } from './components/CalendarModule';
-import { OffSiteModule } from './components/OffSiteModule';
-import { LeaveModule } from './components/LeaveModule';
-import { WFHModule } from './components/WFHModule';
-import { BatchSignModule } from './components/BatchSignModule';
-import { ExecutiveDashboard } from './components/ExecutiveDashboard';
-import { LoginModule } from './components/LoginModule';
+import React, { useState } from 'react';
 import { MigrationModal } from './components/MigrationModal';
 import { ApiSettingsModal } from './components/ApiSettingsModal';
-import Swal from 'sweetalert2';
+import { Settings, Database } from 'lucide-react';
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
-  const [currentTab, setCurrentTab] = useState<string>('calendar');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMigrationOpen, setIsMigrationOpen] = useState(false);
   const [isApiSettingsOpen, setIsApiSettingsOpen] = useState(false);
 
-  // Auto-set mobile sidebar closed on initial load for small screens
-  useEffect(() => {
-    if (window.innerWidth < 768) {
-      setIsSidebarOpen(false);
-    }
-  }, []);
-
-  // Restore logged in user session from LocalStorage
-  useEffect(() => {
-    const saved = localStorage.getItem('nnyphoDeviceUser');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.UserID) {
-          setCurrentUser(parsed);
-        }
-      } catch (e) {
-        localStorage.removeItem('nnyphoDeviceUser');
-      }
-    }
-  }, []);
-
-  const handleLoginSuccess = (user: UserAccount) => {
-    setCurrentUser(user);
-    localStorage.setItem('nnyphoDeviceUser', JSON.stringify(user));
-    setCurrentTab('calendar');
-  };
-
-  const handleLogout = () => {
-    Swal.fire({
-      title: 'ออกจากระบบ',
-      text: 'คุณต้องการออกจากระบบใช่หรือไม่?',
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonText: 'ออกจากระบบ',
-      cancelButtonText: 'ยกเลิก',
-      confirmButtonColor: '#ef4444'
-    }).then((res) => {
-      if (res.isConfirmed) {
-        setCurrentUser(null);
-        localStorage.removeItem('nnyphoDeviceUser');
-      }
-    });
-  };
-
-  const handleRefreshCache = () => {
-    Swal.fire({
-      icon: 'success',
-      title: 'ล้าง Cache ความเร็วสำเร็จ!',
-      text: 'ระบบได้ดึงข้อมูลล่าสุดจาก Google Sheets เรียบร้อยแล้ว',
-      timer: 1500,
-      showConfirmButton: false
-    });
-  };
-
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-100 font-sans text-slate-800">
-      {/* Navigation Sidebar */}
-      <Sidebar
-        currentTab={currentTab}
-        onSelectTab={(tab) => setCurrentTab(tab)}
-        user={currentUser}
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        onOpenMigration={() => setIsMigrationOpen(true)}
-      />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900 font-sans">
+      {/* Top System Utility Bar for Settings & Deployment Config */}
+      <div className="bg-slate-900 text-slate-300 px-4 py-1.5 text-xs border-b border-slate-800 flex justify-between items-center z-50 shrink-0">
+        <div className="flex items-center space-x-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="font-bold text-slate-200">สสจ.นครนายก (MOPH Official System)</span>
+          <span className="text-slate-500 hidden sm:inline">| Google Sheets + Drive Connected</span>
+        </div>
 
-      {/* Main Content Scrollable Workspace */}
-      <div className="flex-1 flex flex-col h-screen overflow-y-auto min-w-0 bg-slate-100">
-        {/* Top Header */}
-        <Header
-          user={currentUser}
-          onLogout={handleLogout}
-          onRefresh={handleRefreshCache}
-          onOpenMigration={() => setIsMigrationOpen(true)}
-          onOpenApiSettings={() => setIsApiSettingsOpen(true)}
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setIsApiSettingsOpen(true)}
+            className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold transition border border-slate-700"
+            title="ตั้งค่า Web App / Google Sheet API URL"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">ตั้งค่า Google Sheet API URL</span>
+          </button>
+
+          <button
+            onClick={() => setIsMigrationOpen(true)}
+            className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-400 font-semibold transition border border-slate-700"
+            title="ย้ายข้อมูล / ข้อมูลตัวอย่าง"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">การเชื่อมต่อ Google Drive</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Full-Fidelity Application View */}
+      <div className="flex-1 w-full h-full relative overflow-hidden bg-white">
+        <iframe
+          id="main-app-frame"
+          src="/app.html"
+          className="w-full h-full border-none"
+          title="สสจ.นครนายก Official System"
+          allow="camera; geolocation; microphone; downloads"
         />
-
-        {/* Dynamic Module Body */}
-        <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
-          {!currentUser ? (
-            <LoginModule onLoginSuccess={handleLoginSuccess} />
-          ) : (
-            <>
-              {currentTab === 'checkin' && <CheckInModule user={currentUser} />}
-              {currentTab === 'calendar' && <CalendarModule />}
-              {currentTab === 'offsite' && <OffSiteModule user={currentUser} />}
-              {currentTab === 'leave' && <LeaveModule user={currentUser} />}
-              {currentTab === 'wfh' && <WFHModule user={currentUser} />}
-              {currentTab === 'batchSign' && <BatchSignModule user={currentUser} />}
-              {currentTab === 'dashboard' && <ExecutiveDashboard user={currentUser} />}
-              {(currentTab === 'reports' || currentTab === 'settings' || currentTab === 'procurement') && (
-                <CalendarModule />
-              )}
-            </>
-          )}
-        </main>
-
-        {/* Footer Branding */}
-        <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-400 space-y-0.5">
-          <p className="font-semibold text-slate-600">
-            สำนักงานสาธารณสุขจังหวัดนครนายก (Nakhon Nayok Provincial Public Health Office)
-          </p>
-          <p className="text-[10px] text-slate-400">Google Sheets Database | Vercel & Drive Integration Ready</p>
-        </footer>
       </div>
 
       {/* Migration Modal */}
@@ -143,3 +63,4 @@ export default function App() {
     </div>
   );
 }
+

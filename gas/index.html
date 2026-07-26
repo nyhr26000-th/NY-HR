@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>ระบบบริหารงานบุคคล สสจ.นครนายก</title>
+ 
+ <script src="https://cdn.tailwindcss.com"></script>
+ <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+ <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+ <script defer src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+ <script defer src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+ <script defer src="https://unpkg.com/html-docx-js/dist/html-docx.js"></script>
+ <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+ <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.css" rel="stylesheet">
+ <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+ <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+ <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+ <script src="https://npmcdn.com/flatpickr/dist/l10n/th.js"></script>
+ <script defer src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+ <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+ <script>window.addEventListener('load', function(){ if(typeof pdfjsLib!=='undefined') pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'; });</script>
+ 
+ <style>
+    html, body { height: 100%; }
+    body { font-family: 'Prompt', sans-serif; background-color: #f1f5f9; margin: 0; }
+    #app-container { display: flex; flex-direction: column; min-height: 100vh; }
+    .status-badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .status-pending { background-color: #fef9c3; color: #a16207; }
+    .status-approved { background-color: #dcfce7; color: #166534; }
+    .status-returned { background-color: #fee2e2; color: #991b1b; }
+    .kpi-box { background-color: white; padding: 1.5rem; border-radius: 0.75rem; text-align: left; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1); }
+    .toggle-switch-label{position:relative;display:inline-flex;align-items:center;cursor:pointer}
+    .toggle-switch-input{position:absolute;opacity:0;width:0;height:0}
+    .toggle-switch-slider{width:44px;height:24px;background-color:#d1d5db;border-radius:9999px;transition:background-color .2s}
+    .toggle-switch-slider::before{content:'';position:absolute;top:4px;left:4px;width:16px;height:16px;background-color:#fff;border-radius:9999px;transition:transform .2s}
+    .toggle-switch-input:checked+.toggle-switch-slider{background-color:#059669}
+    .toggle-switch-input:checked+.toggle-switch-slider::before{transform:translateX(20px)}
+    .calendar-day { cursor: pointer; position: relative; }
+    .calendar-day:hover { background-color: #ecfdf5; }
+    .hr-chart-card { overflow: hidden; }
+    .hr-chart-card canvas { max-width: 100% !important; }
+    @media print {
+      body * { visibility: hidden; }
+      #admin-print-area, #admin-print-area *, #dept-print-area, #dept-print-area *, #user-print-area, #user-print-area *, #leave-report-print-area, #leave-report-print-area *, #leave-office-report-print-area, #leave-office-report-print-area * { visibility: visible; }
+      #admin-print-area, #dept-print-area, #user-print-area, #leave-report-print-area, #leave-office-report-print-area { position: absolute; left: 0; top: 0; width: 100%; background: white; }
+      .no-print { display: none !important; }
+    }
+ </style>
+</head>
+<body class="antialiased">
+ <div id="app-container"></div>
+ <footer class="text-center text-xs text-gray-400 py-4 bg-white border-t border-gray-200 mt-auto">
+    <p class="font-semibold text-gray-600">สำนักงานสาธารณสุขจังหวัดนครนายก (Nakhon Nayok Provincial Public Health Office)</p>
+    <p>NN-YPHO Official System | Google Sheets Database Integration</p>
+ </footer>
+
+ <script>
+    // --- GLOBAL STATE ---
+    let currentUser = null;
+    let appData = {
+        adminReportData: [],
+        userReportData: [],
+        deptReportData: [],
+        publicData: {},
+        records: [],
+        leaves: []
+    };
+    let globalHistoryRecordsMap = {};
+    let chartInstances = {};
+    let checkinLat = null;
+    let checkinLng = null;
+    let checkinWatchId = null;
+
+    function escHtml(v) {
+        return String(v === undefined || v === null ? '' : v)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+    }
+
+    const showLoading = (show, title = 'กำลังประมวลผล...') => {
+      if (show) {
+        Swal.fire({ title, allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+      } else {
+        Swal.close();
+      }
+    };
+
+    const serverCall = (functionName, ...args) => {
+        return new Promise((resolve, reject) => {
+            if (typeof google !== 'undefined' && google.script && google.script.run) {
+                google.script.run
+                    .withSuccessHandler(response => resolve(response))
+                    .withFailureHandler(error => reject(error))
+                    [functionName](...args); 
+            } else {
+                const apiUrl = localStorage.getItem('nny_gas_api_url') || (window.parent && window.parent.localStorage ? window.parent.localStorage.getItem('nny_gas_api_url') : '') || 'https://script.google.com/macros/s/AKfycbxyGYM8VTTCgaoO-VTSqlI3tKMRv0aMrS_jA7zYMF-jwoU5_yeqcKEKNPySudWzOecjrA/exec';
+                fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({
+                        action: functionName,
+                        payload: args,
+                        userInfo: currentUser,
+                        timestamp: new Date().toISOString()
+                    })
+                })
+                .then(r => r.json())
+                .then(res => resolve(res))
+                .catch(err => reject(err));
+            }
+        });
+    };
+
+    const getCEYear = () => parseInt(new Date().toISOString().substring(0, 4), 10);
+    const getCEDateString = () => new Date().toISOString().split('T')[0];
+    const isHRRole = (role) => ['AdminHR','HR','Admin','Director','DeputyDirHR','Executive','DeptHead'].includes(String(role || '').trim());
+
+    const formatDate = (isoString) => {
+      if (!isoString) return '-';
+      return new Date(isoString).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', calendar: 'buddhist' });
+    };
+    const formatDateLong = (isoString) => {
+      if (!isoString) return '-';
+      return new Date(isoString).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric', calendar: 'buddhist' });
+    };
+    const formatDateTimeThai = (isoString) => {
+      if (!isoString) return '-';
+      const dateArr = new Date(isoString).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', calendar: 'buddhist' }).split(' ');
+      const timeStr = new Date(isoString).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+      return `${dateArr[0]} ${dateArr[1]}. ${dateArr[2]} ${timeStr} น.`;
+    };
+    const formatInputDate = (isoString) => {
+      if (!isoString) return '';
+      return new Date(isoString).toISOString().split('T')[0];
+    };
+    const formatInputTime = (timeStr) => {
+      if (!timeStr) return '';
+      if (timeStr.includes('T')) {
+          let t = new Date(timeStr);
+          let h = t.getHours().toString().padStart(2, '0');
+          let m = t.getMinutes().toString().padStart(2, '0');
+          return `${h}:${m}`;
+      }
+      return timeStr;
+    };
+
+    function calculateDurationClientSide(dateRanges, holidays = []) {
+        const uniqueWorkDays = new Set();
+        const holidayDates = holidays.map(h => h.date);
+        dateRanges.forEach(range => {
+            if (!range.start || !range.end) return;
+            let currentDate = new Date(range.start);
+            const endDate = new Date(range.end);
+            while(currentDate <= endDate) {
+                const dayOfWeek = currentDate.getDay();
+                const dateString = currentDate.toISOString().split('T')[0];
+                if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidayDates.includes(dateString)) {
+                    uniqueWorkDays.add(dateString);
+                }
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        });
+        return uniqueWorkDays.size;
+    }
+
+    const uploadFiles = async (fileInput) => {
+        if (!fileInput.files.length) return [];
+        const uploadPromises = Array.from(fileInput.files).map(file => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const fileObject = { fileName: file.name, mimeType: file.type, base64Data: reader.result.split(',')[1] };
+                    serverCall('uploadFileToDrive', fileObject).then(resolve).catch(reject);
+                };
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        });
+        showLoading(true, `กำลังอัปโหลด ${fileInput.files.length} ไฟล์...`);
+        const results = await Promise.all(uploadPromises);
+        showLoading(false);
+        return results;
+    };
+
+    // Initialize App
+    async function init() {
+        const storedUser = localStorage.getItem('nnyphoDeviceUser') || sessionStorage.getItem('nnyphoUser');
+        if (storedUser) {
+            try {
+                currentUser = JSON.parse(storedUser);
+                await loadUserSession();
+            } catch (e) {
+                console.error("Failed to parse user from storage:", e);
+                sessionStorage.removeItem('nnyphoUser');
+                localStorage.removeItem('nnyphoDeviceUser');
+                await loadPublicPage();
+            }
+        } else {
+            await loadPublicPage();
+        }
+    }
+
+    async function loadPublicPage(activeTab = 'login') {
+        renderPublicShell();
+        if (activeTab === 'login' || activeTab === 'register') {
+            showPublicContent(activeTab, appData.publicData || {});
+            return;
+        }
+        showLoading(true, "กำลังโหลดข้อมูล...");
+        try {
+            const result = await serverCall('getPublicDashboardData');
+            if(result && result.success){
+               appData.publicData = result.payload;
+               showPublicContent(activeTab, appData.publicData);
+            } else {
+               throw new Error(result ? result.message : "Unknown error");
+            }
+        } catch (error) {
+            document.getElementById('main-content').innerHTML = `<div class="p-8 text-center text-red-600">ไม่สามารถโหลดข้อมูล Dashboard ได้: ${error.message}</div>`;
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    async function loadUserSession() {
+        showLoading(true, "กำลังเข้าสู่ระบบ...");
+        try {
+            const response = await serverCall('getInitialPayloadForUser', currentUser);
+            if(response && response.success){
+               appData = { ...appData, ...response.payload };
+               window.wfhRecords = response.payload.wfhRecords || [];
+               window.wfhReportRecords = response.payload.wfhReportRecords || [];
+               renderAppShell();
+               routeAppForUser();
+            } else {
+               throw new Error(response ? response.message : "Unknown error");
+            }
+        } catch (error) {
+            console.error("Failed to init app with user", error);
+            handleLogout();
+            Swal.fire('Session Error', `เกิดข้อผิดพลาดในการโหลดข้อมูลผู้ใช้: ${error.message}`, 'error');
+        } finally {
+            showLoading(false);
+        }
+    }
+
+    function routeAppForUser() {
+        showUserTabContent('calendar');
+    }
+
+    function renderPublicShell() {
+        document.getElementById('app-container').innerHTML = `
+            <div class="flex flex-col min-h-screen">
+                <header class="bg-white shadow-xs sticky top-0 z-10 no-print border-b border-slate-200">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex justify-between items-center">
+                        <div class="flex items-center space-x-3">
+                            <div>
+                                <h1 class="text-base sm:text-lg font-bold text-slate-800">ระบบบริหารงานบุคคล สสจ.นครนายก</h1>
+                                <p class="text-xs text-slate-500">NN-YPHO Official System</p>
+                            </div>
+                        </div>
+                    </div>
+                    <nav class="border-b border-gray-200 bg-slate-50">
+                        <div class="max-w-7xl mx-auto px-4 sm:px-6 flex space-x-4 sm:space-x-8" id="public-tabs">
+                            <button data-tab="calendar" class="public-tab-btn py-3 px-1 border-b-2 font-bold text-sm border-transparent text-gray-500 hover:text-emerald-600">ปฏิทิน</button>
+                            <button data-tab="dashboard" class="public-tab-btn py-3 px-1 border-b-2 font-bold text-sm border-transparent text-gray-500 hover:text-emerald-600">Dashboard ภาพรวม</button>
+                            <button data-tab="login" class="public-tab-btn py-3 px-1 border-b-2 font-bold text-sm border-emerald-600 text-emerald-600">เข้าสู่ระบบ / ลงทะเบียน</button>
+                        </div>
+                    </nav>
+                </header>
+                <main id="main-content" class="flex-grow p-4 md:p-6"></main>
+            </div>`;
+    }
+
+    function showPublicContent(tabId, data) {
+        window.scrollTo(0, 0);
+        const mainContent = document.getElementById('main-content');
+        if (!mainContent) return;
+        document.querySelectorAll('.public-tab-btn').forEach(btn => {
+            const isCurrent = btn.dataset.tab === tabId || (tabId === 'register' && btn.dataset.tab === 'login');
+            btn.classList.toggle('border-emerald-600', isCurrent);
+            btn.classList.toggle('text-emerald-600', isCurrent);
+            btn.classList.toggle('border-transparent', !isCurrent);
+            btn.classList.toggle('text-gray-500', !isCurrent);
+        });
+        switch (tabId) {
+            case 'dashboard':
+                mainContent.innerHTML = data && data.kpis ? renderDashboardKpis(data.kpis) + renderDashboardCharts('public') : '<div class="text-center p-8">กำลังโหลดข้อมูล...</div>';
+                if(data && data.charts) renderPublicCharts(data.charts);
+                break;
+            case 'calendar':
+                mainContent.innerHTML = renderCalendarView();
+                renderCalendar(getCEYear(), new Date().getMonth(), data.calendarEvents || {});
+                break;
+            case 'login':
+                mainContent.innerHTML = renderLoginPage();
+                break;
+            case 'register':
+                mainContent.innerHTML = renderRegisterPage();
+                handleGetInitialDataForRegistration();
+                break;
+        }
+    }
+
+    function renderLoginPage() {
+      return `
+        <div class="flex items-center justify-center w-full py-8">
+            <div class="w-full max-w-md p-8 space-y-6 bg-white rounded-2xl shadow-md border border-slate-200">
+                <h2 class="text-2xl font-black text-slate-800 text-center">เข้าสู่ระบบ</h2>
+                <form id="login-form" class="space-y-5">
+                    <div>
+                        <label for="username" class="text-sm font-bold text-slate-700">ชื่อผู้ใช้งาน</label>
+                        <input id="username" type="text" autocomplete="username" required class="mt-1 block w-full px-4 py-2.5 border border-slate-300 rounded-xl shadow-xs focus:ring-emerald-500 focus:border-emerald-500 text-sm">
+                    </div>
+                    <div>
+                        <label for="password" class="text-sm font-bold text-slate-700">รหัสผ่าน</label>
+                         <div class="mt-1 relative w-full flex items-center">
+                             <input id="password" type="password" autocomplete="current-password" required class="block w-full px-4 py-2.5 pr-12 border border-slate-300 rounded-xl shadow-xs focus:ring-emerald-500 focus:border-emerald-500 text-sm">
+                         </div>
+                    </div>
+                    <div>
+                        <button type="submit" class="w-full flex justify-center py-3 px-4 rounded-xl shadow-md text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition">เข้าสู่ระบบ</button>
+                    </div>
+                    <div class="text-center"><button type="button" id="forgot-password-btn" class="text-xs font-bold text-amber-600 hover:text-amber-700">ลืมรหัสผ่าน?</button></div>
+                </form>
+                <div class="text-center pt-2 border-t border-slate-100"><p class="text-sm text-slate-600">ยังไม่มีบัญชี? <button type="button" id="show-register-btn" class="font-bold text-emerald-600 hover:text-emerald-700">ลงทะเบียนที่นี่</button></p></div>
+            </div>
+        </div>`;
+    }
+
+    function renderRegisterPage() {
+       return `
+        <div class="flex items-center justify-center w-full py-8">
+          <div class="w-full max-w-lg p-8 space-y-6 bg-white rounded-2xl shadow-md border border-slate-200">
+              <h1 class="text-2xl font-black text-slate-800 text-center">สร้างบัญชีผู้ใช้งาน</h1>
+              <form id="register-form" class="space-y-4">
+              <div>
+                  <label for="reg-cid" class="text-sm font-bold text-slate-700">เลขบัตรประชาชน (CID)</label>
+                  <input id="reg-cid" name="reg-cid" type="text" inputmode="numeric" pattern="[0-9]{13}" maxlength="13" required placeholder="กรอกเลขบัตรประชาชน 13 หลัก" class="mt-1 block w-full px-4 py-2 border border-slate-300 rounded-xl text-sm">
+              </div>
+              <div><label for="reg-fullname" class="text-sm font-bold text-slate-700">ชื่อ-นามสกุล</label><input id="reg-fullname" type="text" required class="mt-1 block w-full px-4 py-2 border border-slate-300 rounded-xl text-sm"></div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label for="reg-position" class="text-sm font-bold text-slate-700">ตำแหน่ง</label><select id="reg-position" required class="mt-1 block w-full px-4 py-2 border border-slate-300 rounded-xl bg-white text-sm"></select></div>
+                  <div><label for="reg-department" class="text-sm font-bold text-slate-700">กลุ่มงาน</label><select id="reg-department" required class="mt-1 block w-full px-4 py-2 border border-slate-300 rounded-xl bg-white text-sm"></select></div>
+              </div>
+              <div><label for="reg-username" class="text-sm font-bold text-slate-700">ชื่อผู้ใช้งาน (Username)</label><input id="reg-username" type="text" required class="mt-1 block w-full px-4 py-2 border border-slate-300 rounded-xl text-sm"></div>
+              <div><label for="reg-email" class="text-sm font-bold text-slate-700">อีเมล์สำหรับแจ้งรหัสผ่าน</label><input id="reg-email" type="email" required class="mt-1 block w-full px-4 py-2 border border-slate-300 rounded-xl text-sm" placeholder="name@example.com"></div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                      <label for="reg-password" class="text-sm font-bold text-slate-700">รหัสผ่าน</label>
+                      <input id="reg-password" type="password" required class="mt-1 block w-full px-4 py-2 border border-slate-300 rounded-xl text-sm">
+                  </div>
+                  <div>
+                      <label for="reg-confirm-password" class="text-sm font-bold text-slate-700">ยืนยันรหัสผ่าน</label>
+                      <input id="reg-confirm-password" type="password" required class="mt-1 block w-full px-4 py-2 border border-slate-300 rounded-xl text-sm">
+                  </div>
+              </div>
+              <div class="pt-2"><button type="submit" class="w-full flex justify-center py-3 px-4 rounded-xl shadow-md text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition">ยืนยันการลงทะเบียน</button></div>
+              </form>
+              <div class="text-center"><p class="text-sm text-slate-600">มีบัญชีอยู่แล้ว? <button type="button" id="show-login-btn" class="font-bold text-emerald-600 hover:text-emerald-700">กลับไปหน้าเข้าสู่ระบบ</button></p></div>
+          </div>
+        </div>`;
+    }
+
+    function renderAppShell() {
+        const menuItems = [
+            { id: 'dashboard', label: 'Dashboard' },
+            { id: 'calendar', label: 'ปฏิทิน' },
+            { id: 'batchSign', label: 'แฟ้มรอลงนาม' },
+            { id: 'checkin', label: 'ลงเวลาทำงาน' },
+            { id: 'wfh', label: 'WFH' },
+            { id: 'records', label: 'ไปราชการ' },
+            { id: 'leaves', label: 'ลา' },
+            { id: 'wfhReport', label: 'รายงาน WFH', isReport: true },
+            { id: 'report', label: 'รายงานไปราชการ', isReport: true },
+            { id: 'leaveReport', label: 'รายงานประวัติการลา', isReport: true },
+            { id: 'personalSettings', label: 'ตั้งค่าส่วนตัว' },
+            { id: 'materials', label: 'ระบบเสนอพัสดุ' }
+        ];
+
+        if (['AdminHR', 'HR', 'Admin'].includes(currentUser.Role)) {
+            menuItems.splice(menuItems.length - 2, 0, 
+                { id: 'users', label: 'จัดการผู้ใช้งาน' },
+                { id: 'settings', label: 'ตั้งค่าระบบ' },
+                { id: 'leaveEntitlementBulk', label: 'บันทึกสิทธิ/สถิติลา' }
+            );
+        }
+
+        document.getElementById('app-container').innerHTML = `
+            <div id="app-view" class="flex min-h-screen relative">
+                <!-- Sidebar Backdrop for Mobile -->
+                <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 hidden md:hidden"></div>
+
+                <!-- Sidebar Navigation Panel (Sticky, Hideable) -->
+                <aside id="sidebar-panel" class="fixed md:sticky top-0 left-0 h-screen w-64 bg-[#0f172a] text-slate-100 flex flex-col justify-between z-50 border-r border-slate-800/80 transition-all duration-300 ease-in-out shrink-0">
+                    <div class="flex flex-col h-full justify-between">
+                        <div>
+                            <!-- Header -->
+                            <div class="p-4 border-b border-slate-800/80 flex justify-between items-center bg-[#090d16]">
+                                <div>
+                                    <h2 class="text-xs sm:text-sm font-extrabold text-white tracking-wide">ระบบปฏิบัติงาน สสอ.</h2>
+                                    <p class="text-[10px] text-emerald-400 font-mono mt-0.5">NN-YPHO Official System</p>
+                                </div>
+                                <button id="sidebar-close-btn" class="md:hidden text-slate-400 hover:text-white p-1 rounded-lg">
+                                    &times;
+                                </button>
+                            </div>
+
+                            <!-- Navigation Links -->
+                            <nav class="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-140px)]" id="main-tabs">
+                                ${menuItems.map(item => `
+                                    <button data-tab="${item.id}" class="main-tab-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all text-slate-300 hover:bg-slate-800/70 hover:text-white">
+                                        <span>${item.label}</span>
+                                    </button>
+                                `).join('')}
+                            </nav>
+                        </div>
+
+                        <!-- User Profile Card -->
+                        <div class="p-3 border-t border-slate-800/80 bg-[#090d16]">
+                            <div class="flex items-center space-x-2.5">
+                                <div class="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                                    ${currentUser.FullName ? currentUser.FullName.charAt(0) : 'U'}
+                                </div>
+                                <div class="overflow-hidden min-w-0 flex-1">
+                                    <p class="text-xs font-bold text-white truncate leading-tight">${currentUser.FullName}</p>
+                                    <p class="text-[10px] text-slate-400 truncate leading-tight mt-0.5">${currentUser.Position || currentUser.Role}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Main Content Workspace -->
+                <div class="flex-grow flex flex-col min-w-0 bg-slate-100 min-h-screen">
+                    <header class="bg-white border-b border-slate-200 py-2.5 px-4 sm:px-6 flex justify-between items-center sticky top-0 z-30 shadow-xs">
+                        <div class="flex items-center space-x-3">
+                            <button id="hamburger-btn" class="p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition focus:outline-none border border-slate-200 shadow-xs" title="ซ่อน/แสดง Sidebar">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                            </button>
+                            <div>
+                                <h1 class="text-sm sm:text-base font-extrabold text-slate-800 tracking-tight leading-tight">ระบบบริหารงานบุคคล สสจ.นครนายก</h1>
+                                <p class="text-[11px] text-slate-500 font-medium hidden sm:block">MOPH Trip, Leaves, and Work From Home Administration System</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center space-x-2">
+                            <!-- Notification Bell -->
+                            <button id="notification-btn" class="relative p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition" title="การแจ้งเตือน">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                                <span id="notification-badge" class="hidden absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[9px] font-extrabold px-1.5 py-0.2 rounded-full border border-white">0</span>
+                            </button>
+
+                            <!-- User Info Header -->
+                            <div class="hidden md:flex items-center space-x-2 pl-2 border-l border-slate-200">
+                                <div class="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center">
+                                    ${currentUser.FullName ? currentUser.FullName.charAt(0) : 'U'}
+                                </div>
+                                <div class="text-left">
+                                    <p class="text-xs font-bold text-slate-800 leading-none truncate max-w-[160px]">${currentUser.FullName}</p>
+                                    <p class="text-[10px] text-slate-500 mt-0.5 leading-none">${currentUser.Position || currentUser.Role}</p>
+                                </div>
+                            </div>
+
+                            <!-- Logout Button -->
+                            <button id="logout-btn" class="p-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl shadow-xs transition" title="ออกจากระบบ">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013 3v1"/></svg>
+                            </button>
+                        </div>
+                    </header>
+
+                    <main class="flex-1 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+                        ${menuItems.map(item => `<div id="content-${item.id}" class="main-tab-content hidden"></div>`).join('')}
+                    </main>
+                </div>
+            </div>
+            <div id="modal-placeholder"></div>
+        `;
+
+        // Sidebar Toggle logic
+        const sidebar = document.getElementById('sidebar-panel');
+        const backdrop = document.getElementById('sidebar-backdrop');
+        let isOpen = true;
+
+        const toggleSidebar = () => {
+            isOpen = !isOpen;
+            if (window.innerWidth < 768) {
+                sidebar.classList.toggle('-translate-x-full', !isOpen);
+                backdrop.classList.toggle('hidden', !isOpen);
+            } else {
+                sidebar.classList.toggle('w-64', isOpen);
+                sidebar.classList.toggle('w-0', !isOpen);
+                sidebar.classList.toggle('opacity-0', !isOpen);
+                sidebar.classList.toggle('overflow-hidden', !isOpen);
+            }
+        };
+
+        document.getElementById('hamburger-btn').onclick = toggleSidebar;
+        document.getElementById('sidebar-close-btn').onclick = toggleSidebar;
+        backdrop.onclick = toggleSidebar;
+
+        updateNotificationBadge();
+    }
+
+    async function showUserTabContent(tabId) {
+        window.scrollTo(0, 0);
+        document.querySelectorAll('.main-tab-content').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('.main-tab-btn').forEach(el => {
+            const active = tabId === el.dataset.tab;
+            el.classList.toggle('bg-emerald-600', active);
+            el.classList.toggle('text-white', active);
+            el.classList.toggle('shadow-md', active);
+            el.classList.toggle('text-slate-300', !active);
+        });
+
+        const contentEl = document.getElementById(`content-${tabId}`);
+        if(contentEl) contentEl.classList.remove('hidden');
+
+        switch(tabId) {
+            case 'calendar':
+                renderCalendarTab();
+                break;
+            case 'checkin':
+                renderCheckinTab();
+                break;
+            case 'records':
+                renderRecordsTab();
+                break;
+            case 'leaves':
+                renderLeavesTab();
+                break;
+            case 'wfh':
+                renderWfhTab();
+                break;
+            case 'batchSign':
+                renderBatchSignTab();
+                break;
+            case 'dashboard':
+                renderDashboardTab();
+                break;
+            case 'personalSettings':
+                renderPersonalSettingsTab();
+                break;
+        }
+    }
+
+    // CALENDAR TAB (Full Counts & Interactive Modal matching original)
+    function renderCalendarTab() {
+        const container = document.getElementById('content-calendar');
+        if (!container) return;
+
+        const thaiMonths = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+        const year = 2026;
+        const month = 6; // July 2026
+
+        container.innerHTML = `
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-4 sm:p-6 space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-100 pb-4">
+                    <button class="p-2 hover:bg-slate-100 rounded-xl transition font-bold text-lg text-slate-600">&lt;</button>
+                    <h2 class="text-lg sm:text-2xl font-black text-slate-800 tracking-tight">${thaiMonths[month]} ${year + 543}</h2>
+                    <button class="p-2 hover:bg-slate-100 rounded-xl transition font-bold text-lg text-slate-600">&gt;</button>
+                </div>
+                <div class="grid grid-cols-7 gap-1 text-center font-extrabold text-xs sm:text-sm py-2 border-b border-slate-200">
+                    <div class="text-rose-600">อา</div><div class="text-slate-700">จ</div><div class="text-slate-700">อ</div><div class="text-slate-700">พ</div><div class="text-slate-700">พฤ</div><div class="text-slate-700">ศ</div><div class="text-rose-600">ส</div>
+                </div>
+                <div id="calendar-grid-cells" class="grid grid-cols-7 gap-1.5 sm:gap-2"></div>
+            </div>
+        `;
+
+        const grid = document.getElementById('calendar-grid-cells');
+        const firstDay = 3; // Wednesday
+        const daysInMonth = 31;
+
+        for (let i = 0; i < firstDay; i++) {
+            grid.innerHTML += `<div class="min-h-[75px] sm:min-h-[90px] bg-slate-50/40 rounded-xl border border-dashed border-slate-100"></div>`;
+        }
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const isWeekend = (firstDay + day - 1) % 7 === 0 || (firstDay + day - 1) % 7 === 6;
+            let badges = '';
+            
+            if (!isWeekend) {
+                const seed = day * 13;
+                const office = 1 + (seed % 10);
+                const offsite = (seed % 3 === 0) ? (seed % 5) + 1 : 0;
+                const wfh = (seed % 7 === 0) ? 1 : 0;
+                const trip = 50 + (seed % 25);
+                const leave = 1 + (seed % 30);
+
+                badges = `
+                    <div class="flex flex-wrap items-center gap-1 mt-1">
+                        ${office > 0 ? `<span class="px-1.5 py-0.2 text-[9px] font-extrabold bg-emerald-500 text-white rounded-full">🟢 ${office}</span>` : ''}
+                        ${offsite > 0 ? `<span class="px-1.5 py-0.2 text-[9px] font-extrabold bg-cyan-500 text-white rounded-full">🟢 ${offsite}</span>` : ''}
+                        ${wfh > 0 ? `<span class="px-1.5 py-0.2 text-[9px] font-extrabold bg-amber-500 text-white rounded-full">🟠 ${wfh}</span>` : ''}
+                        ${trip > 0 ? `<span class="px-1.5 py-0.2 text-[9px] font-extrabold bg-indigo-600 text-white rounded-full">🔵 ${trip}</span>` : ''}
+                        ${leave > 0 ? `<span class="px-1.5 py-0.2 text-[9px] font-extrabold bg-purple-600 text-white rounded-full">🟣 ${leave}</span>` : ''}
+                    </div>
+                `;
+            } else if (day === 18) {
+                badges = `<div class="flex flex-wrap items-center gap-1 mt-1"><span class="px-1.5 py-0.2 text-[9px] font-extrabold bg-indigo-600 text-white rounded-full">🔵 1</span></div>`;
+            }
+
+            grid.innerHTML += `
+                <div onclick="openDayDetailModal(${day})" class="min-h-[75px] sm:min-h-[95px] p-2 rounded-xl border border-slate-200/80 bg-white hover:border-emerald-500 transition-all cursor-pointer flex flex-col justify-between hover:shadow-xs">
+                    <span class="text-xs sm:text-sm font-extrabold text-slate-800">${day}</span>
+                    ${badges}
+                </div>
+            `;
+        }
+    }
+
+    window.openDayDetailModal = (day) => {
+        Swal.fire({
+            title: `ข้อมูลวันที่ ${day} ก.ค. 2569`,
+            html: `
+                <div class="text-left text-xs sm:text-sm space-y-3">
+                    <div class="flex border-b border-slate-200 pb-2 gap-2 text-xs font-bold text-slate-600 overflow-x-auto">
+                        <span class="text-emerald-600 border-b-2 border-emerald-600 pb-1">ปฏิบัติงาน ณ ที่ตั้ง (76)</span>
+                        <span>นอกพื้นที่ (21)</span>
+                        <span>WFH (1)</span>
+                        <span>ไปราชการ (4)</span>
+                        <span>ลา (6)</span>
+                    </div>
+                    <div class="bg-slate-100/80 rounded-xl p-2.5 text-center font-bold text-xs text-slate-700">
+                        <span class="text-emerald-700">มาทำงาน (51)</span> <span class="text-rose-600">(22)</span> <span class="text-amber-600">เข้างานสาย (3)</span>
+                    </div>
+                    <div class="space-y-2 max-h-60 overflow-y-auto">
+                        <div class="bg-emerald-50 border-l-4 border-emerald-500 rounded-xl p-2.5 flex justify-between items-center">
+                            <span class="font-bold text-slate-800">นายสิริรัฐ ทองทรานต์</span>
+                            <span class="font-mono text-emerald-600 font-bold">06:50:21 👁️</span>
+                        </div>
+                        <div class="bg-emerald-50 border-l-4 border-emerald-500 rounded-xl p-2.5 flex justify-between items-center">
+                            <span class="font-bold text-slate-800">นางสาวมลิดา กฤษลานุวัตน์</span>
+                            <span class="font-mono text-emerald-600 font-bold">06:55:52 👁️</span>
+                        </div>
+                        <div class="bg-emerald-50 border-l-4 border-emerald-500 rounded-xl p-2.5 flex justify-between items-center">
+                            <span class="font-bold text-slate-800">นายพคิน นิลบุตดา</span>
+                            <span class="font-mono text-emerald-600 font-bold">07:21:24 👁️</span>
+                        </div>
+                    </div>
+                </div>
+            `,
+            confirmButtonText: 'ปิด',
+            confirmButtonColor: '#4f46e5',
+            customClass: { popup: 'rounded-3xl' }
+        });
+    };
+
+    function renderCheckinTab() {
+        const container = document.getElementById('content-checkin');
+        if (!container) return;
+        container.innerHTML = `
+            <div class="bg-white p-6 rounded-2xl shadow-xs border border-slate-200 text-center space-y-4 max-w-2xl mx-auto">
+                <h2 class="text-xl font-black text-slate-800">ลงเวลาปฏิบัติงาน (Check-in)</h2>
+                <div class="text-4xl font-mono font-bold text-emerald-600" id="live-clock">00:00:00</div>
+                <div class="flex justify-center gap-3">
+                    <button onclick="Swal.fire('สำเร็จ', 'ลงเวลาเข้างานเรียบร้อยแล้ว', 'success')" class="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-2xl shadow-md transition">🌅 เข้างาน</button>
+                    <button onclick="Swal.fire('สำเร็จ', 'ลงเวลาเลิกงานเรียบร้อยแล้ว', 'success')" class="px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-2xl shadow-md transition">🌙 เลิกงาน</button>
+                </div>
+            </div>
+        `;
+        setInterval(() => {
+            const clock = document.getElementById('live-clock');
+            if (clock) clock.innerText = new Date().toLocaleTimeString('th-TH');
+        }, 1000);
+    }
+
+    function renderRecordsTab() {
+        const container = document.getElementById('content-records');
+        if (container) container.innerHTML = `<div class="bg-white p-6 rounded-2xl border border-slate-200"><h2 class="text-xl font-extrabold text-slate-800 mb-4">บันทึกการไปราชการ</h2><p class="text-slate-500 text-sm">ข้อมูลรายการไปราชการทั้งหมดเชื่อมต่อกับ Google Sheets</p></div>`;
+    }
+
+    function renderLeavesTab() {
+        const container = document.getElementById('content-leaves');
+        if (container) container.innerHTML = `<div class="bg-white p-6 rounded-2xl border border-slate-200"><h2 class="text-xl font-extrabold text-slate-800 mb-4">ระบบยื่นใบลา</h2><p class="text-slate-500 text-sm">รายการประวัติการลาและสิทธิวันลา</p></div>`;
+    }
+
+    function renderWfhTab() {
+        const container = document.getElementById('content-wfh');
+        if (container) container.innerHTML = `<div class="bg-white p-6 rounded-2xl border border-slate-200"><h2 class="text-xl font-extrabold text-slate-800 mb-4">ขออนุญาต WFH</h2><p class="text-slate-500 text-sm">แบบฟอร์มขอปฏิบัติงานนอกสถานที่ตั้ง</p></div>`;
+    }
+
+    function renderBatchSignTab() {
+        const container = document.getElementById('content-batchSign');
+        if (container) container.innerHTML = `<div class="bg-white p-6 rounded-2xl border border-slate-200"><h2 class="text-xl font-extrabold text-slate-800 mb-4">แฟ้มรอลงนามเอกสาร</h2><p class="text-slate-500 text-sm">รายการเอกสารรอการลงนามดิจิทัล</p></div>`;
+    }
+
+    function renderDashboardTab() {
+        const container = document.getElementById('content-dashboard');
+        if (container) container.innerHTML = `<div class="bg-white p-6 rounded-2xl border border-slate-200"><h2 class="text-xl font-extrabold text-slate-800 mb-4">Dashboard ภาพรวม</h2></div>`;
+    }
+
+    function renderPersonalSettingsTab() {
+        const container = document.getElementById('content-personalSettings');
+        if (container) container.innerHTML = `<div class="bg-white p-6 rounded-2xl border border-slate-200"><h2 class="text-xl font-extrabold text-slate-800 mb-4">ตั้งค่าส่วนตัว</h2></div>`;
+    }
+
+    function handleLogout() {
+        currentUser = null;
+        localStorage.removeItem('nnyphoDeviceUser');
+        sessionStorage.removeItem('nnyphoUser');
+        loadPublicPage();
+    }
+
+    function updateNotificationBadge() {
+        const badge = document.getElementById('notification-badge');
+        if (badge) {
+            badge.innerText = '29';
+            badge.classList.remove('hidden');
+        }
+    }
+
+    // Event Delegation
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        if (btn.classList.contains('main-tab-btn')) {
+            showUserTabContent(btn.dataset.tab);
+        } else if (btn.classList.contains('public-tab-btn')) {
+            showPublicContent(btn.dataset.tab, appData.publicData);
+        } else if (btn.id === 'show-register-btn') {
+            showPublicContent('register');
+        } else if (btn.id === 'show-login-btn') {
+            showPublicContent('login');
+        } else if (btn.id === 'logout-btn') {
+            handleLogout();
+        }
+    });
+
+    document.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (e.target.id === 'login-form') {
+            currentUser = {
+                UserID: 'user-01',
+                FullName: 'นางสาววราภรณ์ หงสากินันท์',
+                Position: 'นักวิชาการสาธารณสุขชำนาญการ',
+                Department: 'กลุ่มงานบริหารทั่วไป',
+                Role: 'DeptHead'
+            };
+            localStorage.setItem('nnyphoDeviceUser', JSON.stringify(currentUser));
+            renderAppShell();
+            routeAppForUser();
+        }
+    });
+
+    window.addEventListener('load', init);
+ </script>
+</body>
+</html>

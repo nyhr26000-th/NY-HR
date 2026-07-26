@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+ <html lang="th">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MOPH Official Trip Records System</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script defer src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script defer src="https://unpkg.com/html-docx-js/dist/html-docx.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://npmcdn.com/flatpickr/dist/l10n/th.js"></script>
+  <script defer src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script>window.addEventListener('load', function(){ if(typeof pdfjsLib!=='undefined') pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js'; });</script>
+  
+  <style>
+     html, body { height: 100%; }
+     body { font-family: 'Prompt', sans-serif; background-color: #f0fdfa; margin: 0; }
+     #app-container { display: flex; flex-direction: column; min-height: 100vh; }
+     .status-badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 500; }
+     .status-pending { background-color: #fef9c3; color: #a16207; }
+     .status-approved { background-color: #dcfce7; color: #166534; }
+     .status-returned { background-color: #fee2e2; color: #991b1b; }
+     .kpi-box { background-color: white; padding: 1.5rem; border-radius: 0.75rem; text-align: left; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);}
+     .toggle-switch-label{position:relative;display:inline-flex;align-items:center;cursor:pointer}.toggle-switch-input{position:absolute;opacity:0;width:0;height:0}.toggle-switch-slider{width:44px;height:24px;background-color:#d1d5db;border-radius:9999px;transition:background-color .2s}.toggle-switch-slider::before{content:'';position:absolute;top:4px;left:4px;width:16px;height:16px;background-color:#fff;border-radius:9999px;transition:transform .2s}.toggle-switch-input:checked+.toggle-switch-slider{background-color:#10b981}.toggle-switch-input:checked+.toggle-switch-slider::before{transform:translateX(20px)}
+    .calendar-day { cursor: pointer; position: relative; }
+    .calendar-day:hover { background-color: #ecfdf5; }
+    .hr-chart-card { overflow: hidden; }
+    .hr-chart-card canvas { max-width: 100% !important; }
+    @media print {
+      body * { visibility: hidden; }
+      #admin-print-area, #admin-print-area *, #dept-print-area, #dept-print-area *, #user-print-area, #user-print-area *, #leave-report-print-area, #leave-report-print-area *, #leave-office-report-print-area, #leave-office-report-print-area * { visibility: visible; }
+      #admin-print-area, #dept-print-area, #user-print-area, #leave-report-print-area, #leave-office-report-print-area { position: absolute; left: 0; top: 0; width: 100%; background: white; }
+      .no-print { display: none !important; }
+    }
+  </style>
+ </head>
+ <body class="antialiased">
+  <div id="app-container"></div>
+  <footer class="text-center text-xs text-gray-500 mt-8 py-4">
+          <p>We work in the shadows, so the data can shine in the light.</p>
+          <p class="font-semibold">Created by Batman (DHT4)</p>
+          <p>Nakhon Nayok Provincial Public Health Office</p>
+          <p>Contact: nophfda.app@gmail.com</p>
+  </footer>
+  <script>
+     let currentUser = null;
+     let appData = {
+         adminReportData: [],
+         userReportData: [],
+         deptReportData: [],
+         publicData: {},
+         records: [],
+         leaves: []
+     };
+     let globalHistoryRecordsMap = {};
+     let chartInstances = {};
+      
+     function escHtml(v) {
+          return String(v === undefined || v === null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+     }
+
+     const showLoading = (show, title = 'กำลังประมวลผล...') => {
+       if (show) {
+         Swal.fire({ title, allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+       } else {
+         Swal.close();
+       }
+     };
+
+     const serverCall = (functionName, ...args) => {
+         return new Promise((resolve, reject) => {
+             if (typeof google !== 'undefined' && google.script && google.script.run) {
+                 google.script.run
+                     .withSuccessHandler(response => resolve(response))
+                     .withFailureHandler(error => reject(error))
+                     [functionName](...args); 
+             } else {
+                 const apiUrl = localStorage.getItem('nny_gas_api_url') || (window.parent && window.parent.localStorage ? window.parent.localStorage.getItem('nny_gas_api_url') : '') || 'https://script.google.com/macros/s/AKfycbxyGYM8VTTCgaoO-VTSqlI3tKMRv0aMrS_jA7zYMF-jwoU5_yeqcKEKNPySudWzOecjrA/exec';
+                 fetch(apiUrl, {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                     body: JSON.stringify({
+                         action: functionName,
+                         payload: args,
+                         userInfo: currentUser,
+                         timestamp: new Date().toISOString()
+                     })
+                 })
+                 .then(r => r.json())
+                 .then(res => resolve(res))
+                 .catch(err => reject(err));
+             }
+         });
+     };
+
+      const getCEYear = () => parseInt(new Date().toISOString().substring(0, 4), 10);
+      const getCEDateString = () => new Date().toISOString().split('T')[0];
+      const isHRRole = (role) => ['AdminHR','HR','Admin','Director','DeputyDirHR'].includes(String(role || '').trim());
+
+      const formatDate = (isoString) => {
+        if (!isoString) return '-';
+        return new Date(isoString).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: 'numeric', calendar: 'buddhist' });
+      };
+      const formatDateLong = (isoString) => {
+        if (!isoString) return '-';
+        return new Date(isoString).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric', calendar: 'buddhist' });
+      };
+      const formatDateTimeThai = (isoString) => {
+        if (!isoString) return '-';
+        const dateArr = new Date(isoString).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', calendar: 'buddhist' }).split(' ');
+        const timeStr = new Date(isoString).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+        return `${dateArr[0]} ${dateArr[1]}. ${dateArr[2]} ${timeStr} น.`;
+      };
+
+      async function init() {
+          const storedUser = localStorage.getItem('nnyphoDeviceUser') || sessionStorage.getItem('nnyphoUser');
+          if (storedUser) {
+              try {
+                  currentUser = JSON.parse(storedUser);
+                  await loadUserSession();
+              } catch (e) {
+                  sessionStorage.removeItem('nnyphoUser');
+                  localStorage.removeItem('nnyphoDeviceUser');
+                  await loadPublicPage();
+              }
+          } else {
+              await loadPublicPage();
+          }
+      }
+
+      async function loadPublicPage(activeTab = 'login') {
+          renderPublicShell();
+          if (activeTab === 'login' || activeTab === 'register') {
+              showPublicContent(activeTab, appData.publicData || {});
+              return;
+          }
+          showLoading(true, "กำลังโหลดข้อมูล...");
+          try {
+              const result = await serverCall('getPublicDashboardData');
+              if(result && result.success){
+                 appData.publicData = result.payload;
+                 showPublicContent(activeTab, appData.publicData);
+              }
+          } catch (error) {
+              document.getElementById('main-content').innerHTML = `<div class="p-8 text-center text-red-600">ไม่สามารถโหลดข้อมูล Dashboard ได้: ${error.message}</div>`;
+          } finally {
+              showLoading(false);
+          }
+      }
+
+      async function loadUserSession() {
+          showLoading(true, "กำลังเข้าสู่ระบบ...");
+          try {
+              const response = await serverCall('getInitialPayloadForUser', currentUser);
+              if(response && response.success){
+                 appData = { ...appData, ...response.payload };
+                 window.wfhRecords = response.payload.wfhRecords || [];
+                 window.wfhReportRecords = response.payload.wfhReportRecords || [];
+                 renderAppShell();
+                 routeAppForUser();
+              } else {
+                 throw new Error(response ? response.message : "Unknown error");
+              }
+          } catch (error) {
+              handleLogout();
+          } finally {
+              showLoading(false);
+          }
+      }
+
+      function routeAppForUser() {
+          showUserTabContent('checkin');
+      }
+
+      function renderPublicShell() {
+          document.getElementById('app-container').innerHTML = `
+              <div class="flex flex-col min-h-screen">
+                  <header class="bg-white shadow-sm sticky top-0 z-10 no-print">
+                      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+                          <div class="flex items-center space-x-3 sm:space-x-4 overflow-hidden">
+                              <img src="https://img1.pic.in.th/images/moph.png" alt="MOPH Logo" class="h-10 sm:h-12 flex-shrink-0">
+                              <div class="overflow-hidden">
+                                  <h1 class="text-lg sm:text-2xl font-bold text-green-600 truncate">สสจ.นครนายก</h1>
+                                  <p class="text-xs sm:text-sm text-gray-500 hidden sm:block">MOPH Official HR Records System</p>
+                              </div>
+                          </div>
+                      </div>
+                      <nav class="border-b border-gray-200">
+                          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-4 sm:space-x-8" id="public-tabs">
+                              <button data-tab="calendar" class="public-tab-btn py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">ปฏิทิน</button>
+                              <button data-tab="dashboard" class="public-tab-btn py-4 px-1 border-b-2 font-medium text-sm border-gray-500 text-gray-600">Dashboard ภาพรวม</button>
+                              <button data-tab="login" class="public-tab-btn py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">เข้าสู่ระบบ / ลงทะเบียน</button>
+                          </div>
+                      </nav>
+                  </header>
+                  <main id="main-content" class="flex-grow p-4 md:p-6"></main>
+              </div>`;
+      }
+
+      function showPublicContent(tabId, data) {
+          window.scrollTo(0, 0);
+          const mainContent = document.getElementById('main-content');
+          if (!mainContent) return;
+          document.querySelectorAll('.public-tab-btn').forEach(btn => {
+              const isCurrent = btn.dataset.tab === tabId || (tabId === 'register' && btn.dataset.tab === 'login');
+              btn.classList.toggle('border-emerald-500', isCurrent);
+              btn.classList.toggle('text-emerald-600', isCurrent);
+              btn.classList.toggle('border-transparent', !isCurrent);
+              btn.classList.toggle('text-gray-500', !isCurrent);
+          });
+          switch (tabId) {
+              case 'login':
+                  mainContent.innerHTML = renderLoginPage();
+                  break;
+              case 'register':
+                  mainContent.innerHTML = renderRegisterPage();
+                  break;
+          }
+      }
+
+      function renderLoginPage() {
+        return `
+          <div class="flex items-center justify-center w-full py-8">
+              <div class="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg border">
+                  <h2 class="text-2xl font-bold text-gray-800 text-center">เข้าสู่ระบบ</h2>
+                  <form id="login-form" class="space-y-6">
+                      <div>
+                          <label for="username" class="text-sm font-medium text-gray-700">ชื่อผู้ใช้งาน</label>
+                          <input id="username" type="text" autocomplete="username" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm">
+                      </div>
+                      <div>
+                          <label for="password" class="text-sm font-medium text-gray-700">รหัสผ่าน</label>
+                          <input id="password" type="password" autocomplete="current-password" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm">
+                      </div>
+                      <div>
+                          <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700">เข้าสู่ระบบ</button>
+                      </div>
+                  </form>
+              </div>
+          </div>`;
+      }
+
+      function renderRegisterPage() {
+        return `
+          <div class="flex items-center justify-center w-full py-8">
+            <div class="w-full max-w-lg p-8 space-y-6 bg-white rounded-xl shadow-lg border">
+                <h1 class="text-2xl font-bold text-gray-800 text-center">สร้างบัญชีผู้ใช้งาน</h1>
+                <form id="register-form" class="space-y-4">
+                  <div><label class="text-sm font-medium text-gray-700">ชื่อ-นามสกุล</label><input id="reg-fullname" type="text" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md"></div>
+                  <div><label class="text-sm font-medium text-gray-700">Username</label><input id="reg-username" type="text" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md"></div>
+                  <div><label class="text-sm font-medium text-gray-700">Password</label><input id="reg-password" type="password" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md"></div>
+                  <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700">ยืนยันการลงทะเบียน</button>
+                </form>
+            </div>
+          </div>`;
+      }
+
+      function renderAppShell() {
+          const userTabs = [
+             { id: 'dashboard', label: 'Dashboard' },
+             { id: 'calendar', label: 'ปฏิทิน' },
+             { id: 'batchSign', label: 'แฟ้มรอลงนาม' },
+             { id: 'checkin', label: 'ลงเวลาทำงาน' },
+             { id: 'wfh', label: 'WFH' },
+             { id: 'records', label: 'ไปราชการ' },
+             { id: 'leaves', label: 'ลา' },
+             { id: 'personalSettings', label: 'ตั้งค่าส่วนตัว' }
+          ];
+
+          document.getElementById('app-container').innerHTML = `
+              <div id="app-view" class="block md:flex md:flex-row min-h-screen">
+                  <aside id="sidebar-panel" class="w-64 bg-slate-800 text-slate-100 flex flex-col justify-between flex-shrink-0 h-screen sticky top-0 no-print shadow-xl">
+                      <div>
+                          <div class="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-900">
+                              <div>
+                                  <h2 class="text-base font-bold text-emerald-400">ระบบปฏิบัติงาน สสจ.</h2>
+                                  <p class="text-xs text-slate-400">NN-YPHO System</p>
+                              </div>
+                          </div>
+                          <nav class="p-4 space-y-1" id="main-tabs">
+                              ${userTabs.map(tab => `
+                                  <button data-tab="${tab.id}" class="main-tab-btn w-full flex items-center px-4 py-3 text-sm font-medium rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition">
+                                      <span>${tab.label}</span>
+                                  </button>
+                              `).join('')}
+                          </nav>
+                      </div>
+                      <div class="p-4 border-t border-slate-700 bg-slate-900">
+                          <div class="flex items-center">
+                              <div class="ml-2">
+                                  <p class="text-xs font-semibold text-slate-200">${currentUser.FullName}</p>
+                                  <p class="text-[10px] text-slate-400">${currentUser.Role}</p>
+                              </div>
+                          </div>
+                      </div>
+                  </aside>
+                  <div class="flex-grow flex flex-col min-w-0 bg-slate-50">
+                      <header class="bg-white border-b border-gray-200 py-3.5 px-6 flex justify-between items-center sticky top-0 z-10 shadow-sm">
+                          <h1 class="text-lg font-bold text-gray-800">ระบบบริหารงานบุคคล สสจ.นครนายก</h1>
+                          <div class="flex items-center space-x-3">
+                              <button id="logout-btn" class="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 text-xs">Logout</button>
+                          </div>
+                      </header>
+                      <main class="flex-grow p-6">
+                          ${userTabs.map(tab => `<div id="content-${tab.id}" class="main-tab-content hidden"></div>`).join('')}
+                      </main>
+                  </div>
+              </div>`;
+      }
+
+      function showUserTabContent(tabId) {
+          document.querySelectorAll('.main-tab-content').forEach(el => el.classList.add('hidden'));
+          const el = document.getElementById(`content-${tabId}`);
+          if (el) el.classList.remove('hidden');
+      }
+
+      function handleLogout() {
+          currentUser = null;
+          sessionStorage.removeItem('nnyphoUser');
+          localStorage.removeItem('nnyphoDeviceUser');
+          loadPublicPage();
+      }
+
+      document.addEventListener('click', (e) => {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+          if (btn.classList.contains('main-tab-btn')) {
+              showUserTabContent(btn.dataset.tab);
+          } else if (btn.id === 'logout-btn') {
+              handleLogout();
+          }
+      });
+
+      document.addEventListener('submit', async (e) => {
+          if (e.target.id === 'login-form') {
+              e.preventDefault();
+              const u = e.target.elements.username.value;
+              const p = e.target.elements.password.value;
+              showLoading(true, 'กำลังเข้าสู่ระบบ...');
+              try {
+                  const res = await serverCall('loginUser', u, p);
+                  showLoading(false);
+                  if (res && res.success) {
+                      currentUser = res.user;
+                      localStorage.setItem('nnyphoDeviceUser', JSON.stringify(currentUser));
+                      await loadUserSession();
+                  } else {
+                      Swal.fire('ข้อผิดพลาด', res ? res.message : 'เข้าสู่ระบบไม่สำเร็จ', 'error');
+                  }
+              } catch(err) {
+                  showLoading(false);
+                  Swal.fire('ข้อผิดพลาด', err.message, 'error');
+              }
+          }
+      });
+
+      window.addEventListener('load', init);
+  </script>
+ </body>
+ </html>
