@@ -16,10 +16,17 @@ import Swal from 'sweetalert2';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
-  const [currentTab, setCurrentTab] = useState<string>('checkin');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [currentTab, setCurrentTab] = useState<string>('calendar');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMigrationOpen, setIsMigrationOpen] = useState(false);
   const [isApiSettingsOpen, setIsApiSettingsOpen] = useState(false);
+
+  // Auto-set mobile sidebar closed on initial load for small screens
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      setIsSidebarOpen(false);
+    }
+  }, []);
 
   // Restore logged in user session from LocalStorage
   useEffect(() => {
@@ -39,7 +46,7 @@ export default function App() {
   const handleLoginSuccess = (user: UserAccount) => {
     setCurrentUser(user);
     localStorage.setItem('nnyphoDeviceUser', JSON.stringify(user));
-    setCurrentTab('checkin');
+    setCurrentTab('calendar');
   };
 
   const handleLogout = () => {
@@ -70,30 +77,31 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
-      {/* Top Header */}
-      <Header
+    <div className="flex h-screen overflow-hidden bg-slate-100 font-sans text-slate-800">
+      {/* Navigation Sidebar */}
+      <Sidebar
+        currentTab={currentTab}
+        onSelectTab={(tab) => setCurrentTab(tab)}
         user={currentUser}
-        onLogout={handleLogout}
-        onRefresh={handleRefreshCache}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
         onOpenMigration={() => setIsMigrationOpen(true)}
-        onOpenApiSettings={() => setIsApiSettingsOpen(true)}
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
       />
 
-      <div className="flex-1 flex min-h-[calc(100vh-64px)]">
-        {/* Navigation Sidebar */}
-        <Sidebar
-          currentTab={currentTab}
-          onSelectTab={(tab) => setCurrentTab(tab)}
+      {/* Main Content Scrollable Workspace */}
+      <div className="flex-1 flex flex-col h-screen overflow-y-auto min-w-0 bg-slate-100">
+        {/* Top Header */}
+        <Header
           user={currentUser}
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
+          onLogout={handleLogout}
+          onRefresh={handleRefreshCache}
           onOpenMigration={() => setIsMigrationOpen(true)}
+          onOpenApiSettings={() => setIsApiSettingsOpen(true)}
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         />
 
-        {/* Main Content Area */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+        {/* Dynamic Module Body */}
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
           {!currentUser ? (
             <LoginModule onLoginSuccess={handleLoginSuccess} />
           ) : (
@@ -105,19 +113,21 @@ export default function App() {
               {currentTab === 'wfh' && <WFHModule user={currentUser} />}
               {currentTab === 'batchSign' && <BatchSignModule user={currentUser} />}
               {currentTab === 'dashboard' && <ExecutiveDashboard user={currentUser} />}
+              {(currentTab === 'reports' || currentTab === 'settings' || currentTab === 'procurement') && (
+                <CalendarModule />
+              )}
             </>
           )}
         </main>
-      </div>
 
-      {/* Footer Branding */}
-      <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400 space-y-1">
-        <p className="font-semibold text-slate-600">
-          สำนักงานสาธารณสุขจังหวัดนครนายก (Nakhon Nayok Provincial Public Health Office)
-        </p>
-        <p>Google Sheets Database: 1M8-tKhUIg7OkQDg0lTvl5iQH8awPsKTrMocQodq9rkY</p>
-        <p className="text-[10px] text-slate-400">Created for nyhr26000@gmail.com | Vercel Frontend Deployment Ready</p>
-      </footer>
+        {/* Footer Branding */}
+        <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-400 space-y-0.5">
+          <p className="font-semibold text-slate-600">
+            สำนักงานสาธารณสุขจังหวัดนครนายก (Nakhon Nayok Provincial Public Health Office)
+          </p>
+          <p className="text-[10px] text-slate-400">Google Sheets Database | Vercel & Drive Integration Ready</p>
+        </footer>
+      </div>
 
       {/* Migration Modal */}
       <MigrationModal
