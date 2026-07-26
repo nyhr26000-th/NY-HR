@@ -273,12 +273,13 @@ function showPublicContent(tabId, data) {
    });
    switch (tabId) {
        case 'dashboard':
-           mainContent.innerHTML = data && data.kpis ? renderDashboardKpis(data.kpis) + renderDashboardCharts('public') : '<div class="text-center p-8 text-gray-500">กำลังโหลดข้อมูล...</div>';
-           if(data && data.charts) renderPublicCharts(data.charts);
+           const d = data || (window.appData && window.appData.publicData) || {};
+            mainContent.innerHTML = d.kpis ? renderDashboardKpis(d.kpis) + renderDashboardCharts('public') : '<div class="text-center p-8 text-gray-500">กำลังโหลดข้อมูล...</div>';
+            if(d.charts) renderPublicCharts(d.charts);
            break;
        case 'calendar':
           mainContent.innerHTML = renderCalendarView();
-          renderCalendar(getCEYear(), new Date().getMonth(), data.calendarEvents || {});
+          renderCalendar(getCEYear(), new Date().getMonth(), (data && data.calendarEvents) || (appData && appData.publicData && appData.publicData.calendarEvents) || {});
           break;
        case 'login':
            mainContent.innerHTML = renderLoginPage();
@@ -486,6 +487,206 @@ function renderCalendar(year, month, events = {}) {
 }
 
 
+// --- WORKSPACE SHELL & TAB NAVIGATION ---
+function renderAppShell() {
+    const menuItems = [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'calendar', label: 'ปฏิทิน' },
+        { id: 'batchSign', label: 'แฟ้มรอลงนาม' },
+        { id: 'checkin', label: 'ลงเวลาทำงาน' },
+        { id: 'wfh', label: 'WFH' },
+        { id: 'records', label: 'ไปราชการ' },
+        { id: 'leaves', label: 'ลา' },
+        { id: 'wfhReport', label: 'รายงาน WFH', isReport: true },
+        { id: 'report', label: 'รายงานไปราชการ', isReport: true },
+        { id: 'leaveReport', label: 'รายงานประวัติการลา', isReport: true },
+        { id: 'personalSettings', label: 'ตั้งค่าส่วนตัว' }
+    ];
+
+    if (currentUser && ['AdminHR', 'HR', 'Admin'].includes(currentUser.Role)) {
+        menuItems.splice(menuItems.length - 1, 0, 
+            { id: 'users', label: 'จัดการผู้ใช้งาน' },
+            { id: 'settings', label: 'ตั้งค่าระบบ' },
+            { id: 'leaveEntitlementBulk', label: 'บันทึกสิทธิ/สถิติลา' }
+        );
+    }
+
+    document.getElementById('app-container').innerHTML = `
+        <div id="app-view" class="flex min-h-screen relative">
+            <!-- Sidebar Backdrop for Mobile -->
+            <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 hidden md:hidden"></div>
+
+            <!-- Sidebar Navigation Panel (Sticky, Hideable) -->
+            <aside id="sidebar-panel" class="fixed md:sticky top-0 left-0 h-screen w-64 bg-[#0f172a] text-slate-100 flex flex-col justify-between z-50 border-r border-slate-800/80 transition-all duration-300 ease-in-out shrink-0">
+                <div class="flex flex-col h-full justify-between">
+                    <div>
+                        <!-- Header -->
+                        <div class="p-4 border-b border-slate-800/80 flex justify-between items-center bg-[#090d16]">
+                            <div>
+                                <h2 class="text-xs sm:text-sm font-extrabold text-white tracking-wide">ระบบปฏิบัติงาน สสจ.นครนายก</h2>
+                                <p class="text-[10px] text-emerald-400 font-mono mt-0.5">NNYPHO HR System</p>
+                            </div>
+                            <button id="sidebar-close-btn" class="md:hidden text-slate-400 hover:text-white p-1 rounded-lg">
+                                &times;
+                            </button>
+                        </div>
+
+                        <!-- Navigation Links -->
+                        <nav class="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-140px)]" id="main-tabs">
+                            ${menuItems.map(item => `
+                                <button data-tab="${item.id}" class="main-tab-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all text-slate-300 hover:bg-slate-800/70 hover:text-white">
+                                    <span>${item.label}</span>
+                                </button>
+                            `).join('')}
+                        </nav>
+                    </div>
+
+                    <!-- User Profile Card -->
+                    <div class="p-3 border-t border-slate-800/80 bg-[#090d16]">
+                        <div class="flex items-center space-x-2.5">
+                            <div class="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                                ${currentUser.FullName ? currentUser.FullName.charAt(0) : 'U'}
+                            </div>
+                            <div class="overflow-hidden min-w-0 flex-1">
+                                <p class="text-xs font-bold text-white truncate leading-tight">${currentUser.FullName}</p>
+                                <p class="text-[10px] text-slate-400 truncate leading-tight mt-0.5">${currentUser.Position || currentUser.Role}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content Workspace -->
+            <div class="flex-grow flex flex-col min-w-0 bg-slate-100 min-h-screen">
+                <header class="bg-white border-b border-slate-200 py-2.5 px-4 sm:px-6 flex justify-between items-center sticky top-0 z-30 shadow-xs">
+                    <div class="flex items-center space-x-3">
+                        <button id="hamburger-btn" class="p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition focus:outline-none border border-slate-200 shadow-xs" title="ซ่อน/แสดง Sidebar">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                        </button>
+                        <div>
+                            <h1 class="text-sm sm:text-base font-extrabold text-slate-800 tracking-tight leading-tight">ระบบบริหารงานบุคคล สสจ.นครนายก</h1>
+                            <p class="text-[11px] text-slate-500 font-medium hidden sm:block">MOPH Trip, Leaves, and Work From Home Administration System</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center space-x-2">
+                        <!-- User Info Header -->
+                        <div class="hidden md:flex items-center space-x-2 pl-2 border-l border-slate-200 mr-2">
+                            <div class="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-xs flex items-center justify-center mr-1">
+                                ${currentUser.FullName ? currentUser.FullName.charAt(0) : 'U'}
+                            </div>
+                            <div class="text-left">
+                                <p class="text-xs font-bold text-slate-800 leading-none truncate max-w-[160px]">${currentUser.FullName}</p>
+                                <p class="text-[10px] text-slate-500 mt-0.5 leading-none">${currentUser.Position || currentUser.Role}</p>
+                            </div>
+                        </div>
+
+                        <!-- Logout Button -->
+                        <button id="logout-btn" class="p-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl shadow-xs transition" title="ออกจากระบบ">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013 3v1"/></svg>
+                        </button>
+                    </div>
+                </header>
+
+                <main class="flex-grow p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+                    ${menuItems.map(item => `<div id="content-${item.id}" class="main-tab-content hidden"></div>`).join('')}
+                </main>
+            </div>
+        </div>
+        <div id="modal-placeholder"></div>
+    `;
+
+    // Sidebar Toggle logic
+    const sidebar = document.getElementById('sidebar-panel');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    let isOpen = true;
+
+    const toggleSidebar = () => {
+        isOpen = !isOpen;
+        if (window.innerWidth < 768) {
+            if (sidebar) sidebar.classList.toggle('-translate-x-full', !isOpen);
+            if (backdrop) backdrop.classList.toggle('hidden', !isOpen);
+        } else {
+            if (sidebar) {
+                sidebar.classList.toggle('w-64', isOpen);
+                sidebar.classList.toggle('w-0', !isOpen);
+                sidebar.classList.toggle('opacity-0', !isOpen);
+                sidebar.classList.toggle('overflow-hidden', !isOpen);
+            }
+        }
+    };
+
+    const hBtn = document.getElementById('hamburger-btn');
+    if (hBtn) hBtn.onclick = toggleSidebar;
+    const cBtn = document.getElementById('sidebar-close-btn');
+    if (cBtn) cBtn.onclick = toggleSidebar;
+    if (backdrop) backdrop.onclick = toggleSidebar;
+}
+
+async function showUserTabContent(tabId) {
+    window.scrollTo(0, 0);
+    document.querySelectorAll('.main-tab-content').forEach(el => el.classList.add('hidden'));
+    document.querySelectorAll('.main-tab-btn').forEach(el => {
+        const active = tabId === el.dataset.tab;
+        el.classList.toggle('bg-emerald-600', active);
+        el.classList.toggle('text-white', active);
+        el.classList.toggle('shadow-md', active);
+        el.classList.toggle('text-slate-300', !active);
+    });
+
+    const contentEl = document.getElementById(`content-${tabId}`);
+    if (contentEl) contentEl.classList.remove('hidden');
+
+    switch (tabId) {
+        case 'calendar':
+            if (contentEl) {
+                contentEl.innerHTML = renderCalendarView();
+                renderCalendar(getCEYear(), new Date().getMonth(), appData.publicData ? appData.publicData.calendarEvents || {} : {});
+            }
+            break;
+        case 'checkin':
+            if (typeof renderCheckinPage === 'function') renderCheckinPage();
+            break;
+        case 'wfh':
+            if (typeof renderWFHPage === 'function') renderWFHPage();
+            break;
+        case 'records':
+            if (typeof renderRecordsPage === 'function') renderRecordsPage();
+            break;
+        case 'leaves':
+            if (typeof renderLeavesPage === 'function') renderLeavesPage();
+            break;
+        case 'batchSign':
+            if (typeof renderBatchSignPage === 'function') renderBatchSignPage();
+            break;
+        case 'dashboard':
+            if (typeof renderDashboardPage === 'function') renderDashboardPage();
+            break;
+        case 'personalSettings':
+            if (typeof renderPersonalSettingsPage === 'function') renderPersonalSettingsPage();
+            break;
+        case 'users':
+            if (typeof renderUsersPage === 'function') renderUsersPage();
+            break;
+        case 'settings':
+            if (typeof renderSettingsPage === 'function') renderSettingsPage();
+            break;
+        case 'leaveEntitlementBulk':
+            if (typeof renderLeaveEntitlementBulkPage === 'function') renderLeaveEntitlementBulkPage();
+            break;
+        case 'wfhReport':
+            if (typeof renderWfhReportPage === 'function') renderWfhReportPage();
+            break;
+        case 'report':
+            if (typeof renderUserReportPage === 'function') renderUserReportPage();
+            break;
+        case 'leaveReport':
+            if (typeof renderLeaveReportPage === 'function') renderLeaveReportPage();
+            break;
+    }
+}
+
+
 // --- SYSTEM INITIALIZATION & SESSION ROUTING ---
 async function loadPublicPage() {
     renderPublicShell();
@@ -561,21 +762,7 @@ async function loginSuccessRoute() {
     }
 }
 
-function showPublicContent(subTabId) {
-    document.querySelectorAll('.public-sub-tab').forEach(el => el.classList.add('hidden'));
-    document.querySelectorAll('.pub-tab-btn').forEach(btn => {
-        const isCurrent = btn.dataset.tab === subTabId;
-        btn.classList.toggle('bg-emerald-600', isCurrent);
-        btn.classList.toggle('text-white', isCurrent);
-        btn.classList.toggle('text-slate-700', !isCurrent);
-        btn.classList.toggle('hover:bg-slate-100', !isCurrent);
-    });
 
-    const el = document.getElementById(`pub-content-${subTabId}`);
-    if (el) {
-        el.classList.remove('hidden');
-    }
-}
 
 // --- FORM HANDLING ---
 async function submitLogin(e) {
@@ -671,7 +858,7 @@ document.addEventListener('click', function(e) {
     }
 
     // 2. Public tab buttons
-    const pubTabBtn = e.target.closest('.pub-tab-btn');
+    const pubTabBtn = e.target.closest('.public-tab-btn');
     if (pubTabBtn) {
         const subTabId = pubTabBtn.dataset.tab;
         showPublicContent(subTabId);
