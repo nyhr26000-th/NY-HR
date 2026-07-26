@@ -1027,16 +1027,77 @@ function getWFHReportRecords() {
 
 function setupTimeAttendanceSheets() {
   const ss = getDb();
-  const sheets = ['TimeAttendance', 'WFHRecord', 'WFHRequest', 'WFHAssign', 'LeaveRecord', 'OffSiteRecord', 'WFHReportRecord', 'Settings', 'UserAccounts'];
-  sheets.forEach(name => {
-    if (!ss.getSheetByName(name)) {
-      ss.insertSheet(name);
+  const sheetsConfig = {
+    'UserAccounts': ['UserID', 'Username', 'Password', 'FullName', 'Department', 'Position', 'Role', 'IsActive'],
+    'Settings': ['Category', 'Value', 'Note', 'IsActive'],
+    'TimeAttendance': ['AttendID', 'Date', 'UserID', 'FullName', 'Department', 'CheckInTime', 'CheckInPhoto', 'CheckInLat', 'CheckInLng', 'CheckInTimeAfternoon', 'CheckInAfternoonPhoto', 'CheckInAfternoonLat', 'CheckInAfternoonLng', 'CheckOutTime', 'CheckOutPhoto', 'CheckOutLat', 'CheckOutLng', 'Notes', 'Status', 'Timestamp'],
+    'WFHRecord': ['RecordID', 'UserID', 'FullName', 'Department', 'StartDate', 'EndDate', 'Reason', 'Status', 'IsDeleted'],
+    'WFHRequest': ['RecordID', 'UserID', 'FullName', 'Department', 'StartDate', 'EndDate', 'Reason', 'Status', 'IsDeleted'],
+    'LeaveRecord': ['RecordID', 'UserID', 'FullName', 'Department', 'LeaveType', 'StartDate', 'EndDate', 'TotalDays', 'Reason', 'Status', 'IsDeleted'],
+    'OffSiteRecord': ['RecordID', 'UserID', 'FullName', 'Department', 'StartDate', 'EndDate', 'Destination', 'Purpose', 'Status', 'IsDeleted'],
+    'WFHReportRecord': ['RecordID', 'UserID', 'FullName', 'Department', 'ReportDate', 'TaskDone', 'ProgressPercent', 'Status', 'IsDeleted']
+  };
+
+  Object.keys(sheetsConfig).forEach(name => {
+    let sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+    }
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(sheetsConfig[name]);
     }
   });
+
+  // Seed default Settings if only headers exist
+  const settingsSheet = ss.getSheetByName('Settings');
+  if (settingsSheet && settingsSheet.getLastRow() <= 1) {
+    const defaultSettings = [
+      ['Position', 'นักจัดการงานทั่วไปปฏิบัติการ', '', 'true'],
+      ['Position', 'นักวิชาการสาธารณสุขชำนาญการ', '', 'true'],
+      ['Position', 'เจ้าพนักงานสาธารณสุขปฏิบัติงาน', '', 'true'],
+      ['Position', 'นักทรัพยากรบุคคลปฏิบัติการ', '', 'true'],
+      ['Position', 'นายแพทย์สาธารณสุขจังหวัด', '', 'true'],
+      ['Department', 'กลุ่มงานบริหารทั่วไป', '', 'true'],
+      ['Department', 'กลุ่มงานยุทธศาสตร์สาธารณสุข', '', 'true'],
+      ['Department', 'กลุ่มงานควบคุมโรคติดต่อ', '', 'true'],
+      ['Department', 'กลุ่มงานอนามัยสิ่งแวดล้อม', '', 'true'],
+      ['Department', 'กลุ่มงานคุ้มครองผู้บริโภค', '', 'true'],
+      ['Province', 'นครนายก', '', 'true'],
+      ['Province', 'กรุงเทพมหานคร', '', 'true'],
+      ['Province', 'ปทุมธานี', '', 'true'],
+      ['Province', 'นนทบุรี', '', 'true'],
+      ['Province', 'สระบุรี', '', 'true'],
+      ['Province', 'ปราจีนบุรี', '', 'true'],
+      ['BudgetType', 'งบดำเนินงาน', '', 'true'],
+      ['BudgetType', 'งบลงทุน', '', 'true'],
+      ['BudgetType', 'งบรายจ่ายอื่น', '', 'true'],
+      ['BudgetType', 'เงินบำรุง', '', 'true'],
+      ['TravelType', 'รถยนต์ส่วนกลาง', '', 'true'],
+      ['TravelType', 'รถยนต์ส่วนบุคคล', '', 'true'],
+      ['TravelType', 'รถจักรยานยนต์', '', 'true'],
+      ['SystemConfig', 'สำนักงานสาธารณสุขจังหวัดนครนายก', 'OrganizationName', 'true'],
+      ['SystemConfig', 'MOPH Official HR Records System', 'OrganizationSubtext', 'true'],
+      ['SystemConfig', '14.200114', 'OfficeLat', 'true'],
+      ['SystemConfig', '101.218335', 'OfficeLng', 'true'],
+      ['SystemConfig', '500', 'OfficeRadius', 'true']
+    ];
+    defaultSettings.forEach(row => settingsSheet.appendRow(row));
+  }
+
+  // Seed default UserAccounts if only headers exist
+  const userSheet = ss.getSheetByName('UserAccounts');
+  if (userSheet && userSheet.getLastRow() <= 1) {
+    const defaultUsers = [
+      ['USR_ADMIN', 'admin', 'password', 'ผู้ดูแลระบบ สสจ.นครนายก', 'กลุ่มงานบริหารทั่วไป', 'นักจัดการงานทั่วไปชำนาญการพิเศษ', 'AdminHR', 'true'],
+      ['USR_USER', 'user', 'password', 'สมชาย ใจดี', 'กลุ่มงานยุทธศาสตร์สาธารณสุข', 'นักวิชาการสาธารณสุขปฏิบัติการ', 'User', 'true']
+    ];
+    defaultUsers.forEach(row => userSheet.appendRow(row));
+  }
 }
 
 function getPublicDashboardData() {
   try {
+    setupTimeAttendanceSheets();
     const allRecords = sheetDataToObject(getSheet('OffSiteRecord').getDataRange().getValues()).filter(r => r.IsDeleted !== true);
     const approved = allRecords.filter(r => ['รับทราบแล้ว', 'อนุมัติแล้ว/รับทราบแล้ว', 'อนุมัติแล้ว/เสร็จสิ้น'].includes(r.Status));
     const users = sheetDataToObject(getSheet('UserAccounts').getDataRange().getValues()).filter(u => u.IsActive === true);
@@ -1518,12 +1579,12 @@ function registerUser(userData) {
 
     const newRow = {
       UserID: userId,
-      Username: u.Username || u.Email || '',
-      Password: u.Password || '123456',
-      FullName: u.FullName || '',
-      Department: u.Department || 'งานบริหารทั่วไป',
-      Position: u.Position || '',
-      Role: u.Role || 'Staff',
+      Username: u.Username || u.username || u.Email || u.email || '',
+      Password: u.Password || u.password || '123456',
+      FullName: u.FullName || u.fullname || '',
+      Department: u.Department || u.department || 'งานบริหารทั่วไป',
+      Position: u.Position || u.position || '',
+      Role: u.Role || u.role || 'Staff',
       IsActive: true
     };
 

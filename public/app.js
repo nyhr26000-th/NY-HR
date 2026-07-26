@@ -781,7 +781,7 @@ async function submitLogin(e) {
         const response = await serverCall('loginUser', { username, password });
         showLoading(false);
         if (response && response.success) {
-            currentUser = response.payload;
+            currentUser = response.payload || response.user;
             
             // Save Session
             sessionStorage.setItem('nnyphoUser', JSON.stringify(currentUser));
